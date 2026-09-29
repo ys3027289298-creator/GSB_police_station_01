@@ -2,12 +2,15 @@
 
 import json
 
+MAX_POLICE = 3
+
 
 def new_game():
     return {
         "cases": {},
-        "police": 3,
+        "police": MAX_POLICE,
         "detention": {},
+        "dispatched": [],
         "day": 1,
         "case_id": 0,
     }
@@ -19,42 +22,81 @@ def save_state(state):
 
 def load_state(text):
     state = json.loads(text)
-    state["case_id"] += 1
+    state.setdefault("cases", {})
+    state.setdefault("detention", {})
+    state.setdefault("dispatched", [])
+    state.setdefault("police", MAX_POLICE)
+    state.setdefault("day", 1)
+    state.setdefault("case_id", 0)
     return state
 
 
 def file_case(state, case_id):
-    state["cases"][case_id] = {"evidence": [], "at_large": False}
+    cases = state.setdefault("cases", {})
+    if case_id in cases:
+        return False
+    cases[case_id] = {"evidence": [], "at_large": False}
     return True
 
 
 def dispatch(state, case_id):
+    if case_id not in state.get("cases", {}):
+        return False
+    dispatched = state.setdefault("dispatched", [])
+    if case_id in dispatched:
+        return False
+    if state.get("police", 0) <= 0:
+        return False
     state["police"] -= 1
+    dispatched.append(case_id)
     return True
 
 
 def detention_days(state, case_id, end_day):
-    return (end_day - state["day"]) - 1
+    days = end_day - state.get("day", 1)
+    return max(0, days)
 
 
 def cancel_dispatch(state, case_id):
+    dispatched = state.setdefault("dispatched", [])
+    if case_id not in dispatched:
+        return False
+    dispatched.remove(case_id)
+    state["police"] = min(MAX_POLICE, state.get("police", 0) + 1)
     return True
 
 
 def add_evidence(state, case_id, evidence):
-    state["cases"][case_id]["evidence"].append(evidence)
+    case = state.get("cases", {}).get(case_id)
+    if case is None:
+        return False
+    if case.get("polluted"):
+        return False
+    if evidence in case["evidence"]:
+        return False
+    case["evidence"].append(evidence)
     return True
 
 
 def arrest(state, case_id):
-    if state["cases"][case_id].get("resisted"):
-        state["police"] -= 1
+    case = state.get("cases", {}).get(case_id)
+    if case is None:
         return False
+    if case.get("resisted"):
+        return False
+    case["at_large"] = False
     return True
 
 
 def clear_alarm(state, case_id):
+    case = state.get("cases", {}).get(case_id)
+    if case is None:
+        return False
+    case["at_large"] = False
     return True
+
+
+COMMANDS = {"file", "dispatch", "detention", "cancel", "evidence", "arrest", "alarm", "quit"}
 
 
 def main():
@@ -64,8 +106,13 @@ def main():
             raw = input("> ").strip()
         except (EOFError, KeyboardInterrupt):
             break
-        if not raw or raw == "quit":
+        if not raw:
+            continue
+        if raw == "quit":
             break
+        if raw not in COMMANDS:
+            print("未知命令")
+            continue
         print("ok")
 
 
